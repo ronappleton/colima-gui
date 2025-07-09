@@ -28,7 +28,6 @@ func onReady() {
 	systray.SetTooltip("Colima Tray Manager")
 
 	mStatus := systray.AddMenuItem("Status: Checking...", "")
-	go updateStatus(mStatus)
 
 	systray.AddSeparator()
 
@@ -53,16 +52,31 @@ func onReady() {
 			}
 		}
 	}()
+
+	go updateStatus(mStatus, mStart, mStop)
 }
 
 func onExit() {
 	// Cleanup if needed
 }
 
-func updateStatus(m *systray.MenuItem) {
+func updateStatus(mStatus, mStart, mStop *systray.MenuItem) {
 	for {
 		status, _ := getColimaStatus()
-		m.SetTitle(fmt.Sprintf("Status: %s", status))
+		mStatus.SetTitle(fmt.Sprintf("Status: %s", status))
+
+		switch status {
+		case "Running":
+			mStart.Hide()
+			mStop.Show()
+		case "Stopped":
+			mStop.Hide()
+			mStart.Show()
+		default:
+			mStart.Show()
+			mStop.Show()
+		}
+
 		time.Sleep(5 * time.Second)
 	}
 }
@@ -95,5 +109,5 @@ func contains(s, substr string) bool {
 
 func runCommand(name string, arg ...string) {
 	cmd := exec.Command(name, arg...)
-	cmd.Run() // fire and forget, or capture output
+	cmd.Run()
 }

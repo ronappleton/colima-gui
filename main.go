@@ -140,6 +140,20 @@ func parseStatus(output string) string {
 	return strings.TrimSpace(output)
 }
 
+func parseContainerStatus(output string) string {
+	out := strings.ToLower(strings.TrimSpace(output))
+	switch {
+	case strings.HasPrefix(out, "up") || strings.Contains(out, "running"):
+		return "Running"
+	case strings.HasPrefix(out, "exited") || strings.Contains(out, "created") || strings.Contains(out, "stopped"):
+		return "Stopped"
+	}
+	if out == "" {
+		return "Unknown"
+	}
+	return strings.TrimSpace(output)
+}
+
 func getContainersByProject() (map[string][]Container, error) {
 	out, err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}|{{.Label \"com.docker.compose.project\"}}|{{.Status}}").CombinedOutput()
 	if err != nil {
@@ -186,24 +200,112 @@ func populateProjectsMenu(m *systray.MenuItem) {
 		containers := projects[proj]
 		projItem := m.AddSubMenuItem(proj, "")
 
-		for _, c := range containers {
-			containerItem := projItem.AddSubMenuItem(c.Name, c.Status)
+		startAll := projItem.AddSubMenuItem("Start All", "")
+		stopAll := projItem.AddSubMenuItem("Stop All", "")
+		restartAll := projItem.AddSubMenuItem("Restart All", "")
+		projItem.AddSubMenuItem("", "").Disable()
+
+		updateProjectItems := func() {
+			anyRunning := false
+			anyStopped := false
+			for _, c := range containers {
+				status := parseContainerStatus(c.Status)
+				if status == "Running" {
+					anyRunning = true
+				}
+				if status == "Stopped" {
+					anyStopped = true
+				}
+			}
+			if anyRunning {
+				stopAll.Show()
+			} else {
+				stopAll.Hide()
+			}
+			if anyStopped {
+				startAll.Show()
+			} else {
+				startAll.Hide()
+			}
+		}
+
+		for i := range containers {
+			c := &containers[i]
+			status := parseContainerStatus(c.Status)
+			containerItem := projItem.AddSubMenuItem(c.Name, status)
 			startItem := containerItem.AddSubMenuItem("Start", "")
 			stopItem := containerItem.AddSubMenuItem("Stop", "")
+			restartItem := containerItem.AddSubMenuItem("Restart", "")
 			delItem := containerItem.AddSubMenuItem("Delete", "")
 
-			go func(name string) {
+			updateItems := func(st string) {
+				containerItem.SetTitle(fmt.Sprintf("%s (%s)", c.Name, st))
+				switch st {
+				case "Running":
+					startItem.Hide()
+					stopItem.Show()
+				case "Stopped":
+					stopItem.Hide()
+					startItem.Show()
+				default:
+					startItem.Show()
+					stopItem.Show()
+				}
+				restartItem.Show()
+			}
+
+			updateItems(status)
+
+			go func(name string, cont *Container) {
 				for {
 					select {
 					case <-startItem.ClickedCh:
 						exec.Command("docker", "start", name).Run()
+						cont.Status = "Running"
+						updateItems("Running")
+						updateProjectItems()
 					case <-stopItem.ClickedCh:
 						exec.Command("docker", "stop", name).Run()
+						cont.Status = "Stopped"
+						updateItems("Stopped")
+						updateProjectItems()
+					case <-restartItem.ClickedCh:
+						exec.Command("docker", "restart", name).Run()
+						cont.Status = "Running"
+						updateItems("Running")
+						updateProjectItems()
 					case <-delItem.ClickedCh:
 						exec.Command("docker", "rm", name).Run()
 					}
 				}
-			}(c.Name)
+			}(c.Name, c)
 		}
+
+		go func(conts []Container) {
+			for {
+				select {
+				case <-startAll.ClickedCh:
+					for i := range conts {
+						exec.Command("docker", "start", conts[i].Name).Run()
+						conts[i].Status = "Running"
+					}
+					updateProjectItems()
+				case <-stopAll.ClickedCh:
+					for i := range conts {
+						exec.Command("docker", "stop", conts[i].Name).Run()
+						conts[i].Status = "Stopped"
+					}
+					updateProjectItems()
+				case <-restartAll.ClickedCh:
+					for i := range conts {
+						exec.Command("docker", "restart", conts[i].Name).Run()
+						conts[i].Status = "Running"
+					}
+					updateProjectItems()
+				}
+			}
+		}(containers)
+
+		updateProjectItems()
 	}
 }

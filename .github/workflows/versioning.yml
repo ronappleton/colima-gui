@@ -1,5 +1,8 @@
 name: Versioning
 
+permissions:
+  contents: write
+
 on:
   push:
     branches-ignore:
@@ -75,4 +78,3 @@ jobs:
         run: |
           git tag ${{ steps.next.outputs.new }}
           git push origin ${{ steps.next.outputs.new }}
-          

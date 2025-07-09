@@ -1,41 +1,70 @@
-name: Build Release
+name: Build & Release
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
-  build:
+  build-linux:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install dependencies for systray
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libayatana-appindicator3-dev pkg-config
+      - name: Build Linux binary
+        run: GOOS=linux GOARCH=amd64 go build -o colima-gui-linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colima-gui-linux
+          path: colima-gui-linux
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Build Windows binary
+        run: go build -o colima-gui.exe
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colima-gui.exe
+          path: colima-gui.exe
+
+  build-macos:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          go-version: stable
+      - name: Build macOS binary
+        run: go build -o colima-gui-darwin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: colima-gui-darwin
+          path: colima-gui-darwin
 
-      - name: Install dependencies for Linux build
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libayatana-appindicator3-dev pkg-config
-
-      - name: Build Windows
-        run: GOOS=windows GOARCH=amd64 go build -o colima-gui.exe
-
-      - name: Build Linux
-        run: GOOS=linux GOARCH=amd64 go build -o colima-gui-linux
-
-      - name: Build macOS
-        run: GOOS=darwin GOARCH=amd64 go build -o colima-gui-darwin
-
-      - name: Create release
+  release:
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
-          files: |
-            colima-gui.exe
-            colima-gui-linux
-            colima-gui-darwin
-
+          files: ./artifacts/**/*

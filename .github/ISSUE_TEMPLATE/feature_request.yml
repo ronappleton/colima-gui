@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest an idea for this project
+labels: enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe your idea in detail so we can discuss it.
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What feature would you like to see?
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this feature useful?
+    validations:
+      required: false

@@ -11,15 +11,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-go@v4
+      - uses: actions/setup-go@v4.1.1
         with:
           go-version: 'stable'
+
+      - name: Install dependencies for Linux build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libayatana-appindicator3-dev pkg-config
+
       - name: Build Windows
         run: GOOS=windows GOARCH=amd64 go build -o colima-gui.exe
+
       - name: Build Linux
         run: GOOS=linux GOARCH=amd64 go build -o colima-gui-linux
+
       - name: Build macOS
         run: GOOS=darwin GOARCH=amd64 go build -o colima-gui-darwin
+
       - name: Create release
         uses: softprops/action-gh-release@v1
         with:
@@ -29,3 +38,4 @@ jobs:
             colima-gui.exe
             colima-gui-linux
             colima-gui-darwin
+

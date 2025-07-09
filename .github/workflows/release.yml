@@ -1,18 +1,22 @@
 name: Build & Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
+  pull_request:
+    types: [closed]
 
 permissions:
   contents: write
 
 jobs:
   build-linux:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: stable
@@ -28,9 +32,10 @@ jobs:
           path: colima-gui-linux
 
   build-windows:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || github.event.pull_request.merged == true
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: stable
@@ -42,6 +47,7 @@ jobs:
           path: colima-gui.exe
 
   build-macos:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || github.event.pull_request.merged == true
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +62,7 @@ jobs:
           path: colima-gui-darwin
 
   release:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v') || github.event.pull_request.merged == true
     needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     steps:

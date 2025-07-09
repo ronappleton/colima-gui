@@ -33,7 +33,6 @@ func main() {
 
 func onReady() {
 	systray.SetIcon(iconData)
-	systray.SetTitle("Colima")
 	systray.SetTooltip("Colima Tray Manager")
 
 	mStatus := systray.AddMenuItem("Status: Checking...", "")

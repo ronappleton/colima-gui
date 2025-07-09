@@ -1,0 +1,32 @@
+name: Bug report
+description: Report a problem or unexpected behavior
+labels: bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to help improve the project.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug in detail.
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide the steps that triggered the bug.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: Tell us what you expected to happen.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment details
+      description: Include OS, Colima version and anything else relevant.

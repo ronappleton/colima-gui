@@ -1,0 +1,7 @@
+defaults:
+  - label: bug
+    name: Bug report
+  - label: enhancement
+    name: Feature request
+blank_issues_enabled: false
+contact_links: []

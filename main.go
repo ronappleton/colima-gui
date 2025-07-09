@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -153,6 +154,42 @@ func parseContainerStatus(output string) string {
 	return strings.TrimSpace(output)
 }
 
+func openTerminal(cmdStr string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		escaped := strings.ReplaceAll(cmdStr, "\"", "\\\"")
+		return exec.Command("osascript", "-e", fmt.Sprintf("tell application \"Terminal\" to do script \"%s\"", escaped)).Start()
+	case "windows":
+		return exec.Command("cmd", "/C", "start", "cmd", "/K", cmdStr).Start()
+	default:
+		term := os.Getenv("TERMINAL")
+		if term == "" {
+			term = "x-terminal-emulator"
+		}
+		return exec.Command(term, "-e", "bash", "-c", cmdStr).Start()
+	}
+}
+
+func showContainerLogs(name string) {
+	var cmd string
+	if runtime.GOOS == "windows" {
+		cmd = fmt.Sprintf("docker logs -f %s & pause", name)
+	} else {
+		cmd = fmt.Sprintf("docker logs -f %s; read -n1 -s -r -p 'Press any key to close...'", name)
+	}
+	openTerminal(cmd)
+}
+
+func execInContainer(name string) {
+	var cmd string
+	if runtime.GOOS == "windows" {
+		cmd = fmt.Sprintf("docker exec -it %s cmd", name)
+	} else {
+		cmd = fmt.Sprintf("docker exec -it %s sh", name)
+	}
+	openTerminal(cmd)
+}
+
 func getContainersByProject() (map[string][]Container, error) {
 	out, err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}|{{.Label \"com.docker.compose.project\"}}|{{.Status}}").CombinedOutput()
 	if err != nil {
@@ -235,6 +272,8 @@ func populateProjectsMenu(m *systray.MenuItem) {
 			startItem := containerItem.AddSubMenuItem("Start", "")
 			stopItem := containerItem.AddSubMenuItem("Stop", "")
 			restartItem := containerItem.AddSubMenuItem("Restart", "")
+			logsItem := containerItem.AddSubMenuItem("Logs", "")
+			execItem := containerItem.AddSubMenuItem("Exec", "")
 			delItem := containerItem.AddSubMenuItem("Delete", "")
 
 			updateItems := func(st string) {
@@ -284,6 +323,10 @@ func populateProjectsMenu(m *systray.MenuItem) {
 						cont.Status = "Running"
 						updateItems("Running")
 						updateProjectItems()
+					case <-logsItem.ClickedCh:
+						go showContainerLogs(name)
+					case <-execItem.ClickedCh:
+						go execInContainer(name)
 					case <-delItem.ClickedCh:
 						exec.Command("docker", "rm", name).Run()
 						return

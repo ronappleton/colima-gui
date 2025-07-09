@@ -18,6 +18,9 @@ The resulting binary can then be launched directly.
 
 Run the compiled executable. A tray icon will appear which displays the current
 Colima status and offers menu items to manage Colima and containers.
+Each listed container now includes **Logs** and **Exec** actions. Selecting
+**Logs** opens a read-only terminal window showing the container logs, while
+**Exec** starts an interactive shell inside the container.
 
 ## License
 

@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/getlantern/systray"
@@ -60,25 +61,32 @@ func onExit() {
 
 func updateStatus(m *systray.MenuItem) {
 	for {
-		out, err := exec.Command("colima", "status").Output()
-		status := "Status: Unknown"
-		if err == nil {
-			status = fmt.Sprintf("Status: %s", parseStatus(string(out)))
-		}
-		m.SetTitle(status)
+		status, _ := getColimaStatus()
+		m.SetTitle(fmt.Sprintf("Status: %s", status))
 		time.Sleep(5 * time.Second)
 	}
 }
 
+func getColimaStatus() (string, error) {
+	out, err := exec.Command("colima", "status").CombinedOutput()
+	if err != nil {
+		return "Unknown", err
+	}
+	return parseStatus(string(out)), nil
+}
+
 func parseStatus(output string) string {
-	// Simple example, could be smarter
-	if output == "" {
+	out := strings.ToLower(strings.TrimSpace(output))
+	switch {
+	case strings.Contains(out, "running"):
+		return "Running"
+	case strings.Contains(out, "stopped"):
 		return "Stopped"
 	}
-	if contains(output, "Running") {
-		return "Running"
+	if out == "" {
+		return "Unknown"
 	}
-	return "Stopped"
+	return strings.TrimSpace(output)
 }
 
 func contains(s, substr string) bool {

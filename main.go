@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/getlantern/systray"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 var iconData []byte
@@ -42,13 +44,14 @@ func onReady() {
 		for {
 			select {
 			case <-mStart.ClickedCh:
-				runCommand("colima", "start")
+				runColimaCmd(mStatus, mStart, mStop, mRestart, "starting...", "start")
 			case <-mStop.ClickedCh:
-				runCommand("colima", "stop")
+				runColimaCmd(mStatus, mStart, mStop, mRestart, "stopping...", "stop")
 			case <-mRestart.ClickedCh:
-				runCommand("colima", "restart")
+				runColimaCmd(mStatus, mStart, mStop, mRestart, "restarting...", "restart")
 			case <-mQuit.ClickedCh:
 				systray.Quit()
+				return
 			}
 		}
 	}()
@@ -62,23 +65,46 @@ func onExit() {
 
 func updateStatus(mStatus, mStart, mStop *systray.MenuItem) {
 	for {
-		status, _ := getColimaStatus()
-		mStatus.SetTitle(fmt.Sprintf("Status: %s", status))
-
-		switch status {
-		case "Running":
-			mStart.Hide()
-			mStop.Show()
-		case "Stopped":
-			mStop.Hide()
-			mStart.Show()
-		default:
-			mStart.Show()
-			mStop.Show()
-		}
+		refreshStatus(mStatus, mStart, mStop)
 
 		time.Sleep(5 * time.Second)
 	}
+}
+
+func refreshStatus(mStatus, mStart, mStop *systray.MenuItem) {
+	status, _ := getColimaStatus()
+	mStatus.SetTitle(fmt.Sprintf("Status: %s", status))
+
+	switch status {
+	case "Running":
+		mStart.Hide()
+		mStart.Enable()
+		mStop.Show()
+		mStop.Enable()
+	case "Stopped":
+		mStop.Hide()
+		mStop.Enable()
+		mStart.Show()
+		mStart.Enable()
+	default:
+		mStart.Show()
+		mStart.Enable()
+		mStop.Show()
+		mStop.Enable()
+	}
+}
+
+func runColimaCmd(mStatus, mStart, mStop, mRestart *systray.MenuItem, msg, action string) {
+	mStatus.SetTitle(fmt.Sprintf("Status: %s", cases.Title(language.English).String(msg)))
+	mStart.Disable()
+	mStop.Disable()
+	mRestart.Disable()
+
+	go func() {
+		exec.Command("colima", action).Run()
+		refreshStatus(mStatus, mStart, mStop)
+		mRestart.Enable()
+	}()
 }
 
 func getColimaStatus() (string, error) {

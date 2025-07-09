@@ -256,8 +256,19 @@ func populateProjectsMenu(m *systray.MenuItem) {
 			updateItems(status)
 
 			go func(name string, cont *Container) {
+				ticker := time.NewTicker(5 * time.Second)
+				defer ticker.Stop()
+
 				for {
 					select {
+					case <-ticker.C:
+						out, err := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", name).CombinedOutput()
+						if err == nil {
+							st := parseContainerStatus(string(out))
+							cont.Status = st
+							updateItems(st)
+							updateProjectItems()
+						}
 					case <-startItem.ClickedCh:
 						exec.Command("docker", "start", name).Run()
 						cont.Status = "Running"
@@ -275,6 +286,7 @@ func populateProjectsMenu(m *systray.MenuItem) {
 						updateProjectItems()
 					case <-delItem.ClickedCh:
 						exec.Command("docker", "rm", name).Run()
+						return
 					}
 				}
 			}(c.Name, c)

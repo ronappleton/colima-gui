@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -14,6 +15,12 @@ import (
 )
 
 var iconData []byte
+
+type Container struct {
+	Name    string
+	Project string
+	Status  string
+}
 
 func main() {
 	var err error
@@ -36,6 +43,10 @@ func onReady() {
 	mStart := systray.AddMenuItem("Start Colima", "")
 	mStop := systray.AddMenuItem("Stop Colima", "")
 	mRestart := systray.AddMenuItem("Restart Colima", "")
+
+	systray.AddSeparator()
+	projectsMenu := systray.AddMenuItem("Projects", "")
+	populateProjectsMenu(projectsMenu)
 
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit", "")
@@ -129,11 +140,70 @@ func parseStatus(output string) string {
 	return strings.TrimSpace(output)
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || s[0:len(substr)] == substr)
+func getContainersByProject() (map[string][]Container, error) {
+	out, err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}|{{.Label \"com.docker.compose.project\"}}|{{.Status}}").CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+	projects := make(map[string][]Container)
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 3)
+		if len(parts) < 1 {
+			continue
+		}
+		name := parts[0]
+		project := "default"
+		if len(parts) > 1 && parts[1] != "" {
+			project = parts[1]
+		}
+		status := ""
+		if len(parts) > 2 {
+			status = parts[2]
+		}
+		projects[project] = append(projects[project], Container{Name: name, Project: project, Status: status})
+	}
+
+	return projects, nil
 }
 
-func runCommand(name string, arg ...string) {
-	cmd := exec.Command(name, arg...)
-	cmd.Run()
+func populateProjectsMenu(m *systray.MenuItem) {
+	projects, err := getContainersByProject()
+	if err != nil {
+		return
+	}
+
+	projectNames := make([]string, 0, len(projects))
+	for name := range projects {
+		projectNames = append(projectNames, name)
+	}
+	sort.Strings(projectNames)
+
+	for _, proj := range projectNames {
+		containers := projects[proj]
+		projItem := m.AddSubMenuItem(proj, "")
+
+		for _, c := range containers {
+			containerItem := projItem.AddSubMenuItem(c.Name, c.Status)
+			startItem := containerItem.AddSubMenuItem("Start", "")
+			stopItem := containerItem.AddSubMenuItem("Stop", "")
+			delItem := containerItem.AddSubMenuItem("Delete", "")
+
+			go func(name string) {
+				for {
+					select {
+					case <-startItem.ClickedCh:
+						exec.Command("docker", "start", name).Run()
+					case <-stopItem.ClickedCh:
+						exec.Command("docker", "stop", name).Run()
+					case <-delItem.ClickedCh:
+						exec.Command("docker", "rm", name).Run()
+					}
+				}
+			}(c.Name)
+		}
+	}
 }

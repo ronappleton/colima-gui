@@ -1,0 +1,78 @@
+name: Versioning
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    types: [closed]
+
+jobs:
+  build_push:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Fetch tags
+        run: git fetch --tags
+      - name: Get latest tag
+        id: latest
+        run: |
+          tag=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
+          if [ -z "$tag" ]; then
+            tag=v0.0.0
+          fi
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+      - name: Bump build number
+        id: next
+        run: |
+          ver=${{ steps.latest.outputs.tag }}
+          IFS=. read -r major minor patch <<<"${ver#v}"
+          patch=$((patch+1))
+          echo "new=v$major.$minor.$patch" >> $GITHUB_OUTPUT
+      - name: Create tag
+        run: |
+          git tag ${{ steps.next.outputs.new }}
+          git push origin ${{ steps.next.outputs.new }}
+
+  merge:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Fetch tags
+        run: git fetch --tags
+      - name: Get latest tag
+        id: latest
+        run: |
+          tag=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
+          if [ -z "$tag" ]; then
+            tag=v0.0.0
+          fi
+          echo "tag=$tag" >> $GITHUB_OUTPUT
+      - name: Determine next version
+        id: next
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        run: |
+          ver=${{ steps.latest.outputs.tag }}
+          labels="$LABELS"
+          IFS=. read -r major minor patch <<<"${ver#v}"
+          if echo "$labels" | grep -q "major"; then
+            major=$((major+1))
+            minor=0
+            patch=0
+          else
+            minor=$((minor+1))
+            patch=0
+          fi
+          echo "new=v$major.$minor.$patch" >> $GITHUB_OUTPUT
+      - name: Create tag
+        run: |
+          git tag ${{ steps.next.outputs.new }}
+          git push origin ${{ steps.next.outputs.new }}
+          

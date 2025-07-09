@@ -1,0 +1,31 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v4
+        with:
+          go-version: 'stable'
+      - name: Build Windows
+        run: GOOS=windows GOARCH=amd64 go build -o colima-gui.exe
+      - name: Build Linux
+        run: GOOS=linux GOARCH=amd64 go build -o colima-gui-linux
+      - name: Build macOS
+        run: GOOS=darwin GOARCH=amd64 go build -o colima-gui-darwin
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          files: |
+            colima-gui.exe
+            colima-gui-linux
+            colima-gui-darwin

@@ -3,11 +3,13 @@ package main
 import (
 	_ "embed"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/getlantern/systray"
@@ -25,6 +27,20 @@ type Container struct {
 }
 
 func main() {
+	if os.Getenv("COLIMA_GUI_DETACHED") == "" {
+		cmd := exec.Command(os.Args[0], os.Args[1:]...)
+		cmd.Env = append(os.Environ(), "COLIMA_GUI_DETACHED=1")
+		if runtime.GOOS != "windows" {
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		} else {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		if err := cmd.Start(); err != nil {
+			log.Fatalf("failed to start daemon: %v", err)
+		}
+		return
+	}
+	
 	systray.Run(onReady, onExit)
 }
 

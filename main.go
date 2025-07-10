@@ -2,6 +2,7 @@ package main
 
 import (
 	_ "embed"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -17,6 +18,8 @@ import (
 	"golang.org/x/text/language"
 )
 
+var version = "dev"
+
 //go:embed images/icon.ico
 var iconData []byte
 
@@ -27,6 +30,13 @@ type Container struct {
 }
 
 func main() {
+	verFlag := flag.Bool("version", false, "print version and exit")
+	flag.Parse()
+	if *verFlag {
+		fmt.Println(version)
+		return
+	}
+
 	if os.Getenv("COLIMA_GUI_DETACHED") == "" {
 		cmd := exec.Command(os.Args[0], os.Args[1:]...)
 		cmd.Env = append(os.Environ(), "COLIMA_GUI_DETACHED=1")

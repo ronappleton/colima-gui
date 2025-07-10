@@ -9,10 +9,15 @@ control individual containers or entire projects.
 ## Building
 
 ```bash
-go build
+go build -ldflags "-X main.version=$(git describe --tags --always)"
 ```
 
 The resulting binary can then be launched directly.
+
+### Dependencies
+
+The build relies on `pkg-config` and the `libayatana-appindicator3-dev` package
+on Linux. Install them with `apt-get install -y libayatana-appindicator3-dev pkg-config`.
 
 ## Usage
 
@@ -21,6 +26,8 @@ Colima status and offers menu items to manage Colima and containers.
 Each listed container now includes **Logs** and **Exec** actions. Selecting
 **Logs** opens a read-only terminal window showing the container logs, while
 **Exec** starts an interactive shell inside the container.
+
+Use `colima-gui -version` to check the embedded version string.
 
 ## License
 

@@ -1,8 +1,8 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"runtime"
@@ -15,6 +15,7 @@ import (
 	"golang.org/x/text/language"
 )
 
+//go:embed images/icon.ico
 var iconData []byte
 
 type Container struct {
@@ -24,11 +25,6 @@ type Container struct {
 }
 
 func main() {
-	var err error
-	iconData, err = os.ReadFile("images/icon.ico")
-	if err != nil {
-		log.Fatalf("failed to load icon: %v", err)
-	}
 	systray.Run(onReady, onExit)
 }
 

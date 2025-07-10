@@ -40,7 +40,7 @@ func main() {
 		}
 		return
 	}
-	
+
 	systray.Run(onReady, onExit)
 }
 

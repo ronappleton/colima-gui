@@ -189,7 +189,10 @@ func showContainerLogs(name string) {
 	} else {
 		cmd = fmt.Sprintf("docker logs -f %s; read -n1 -s -r -p 'Press any key to close...'", name)
 	}
-	openTerminal(cmd)
+	err := openTerminal(cmd)
+	if err != nil {
+		return
+	}
 }
 
 func execInContainer(name string) {
@@ -199,16 +202,15 @@ func execInContainer(name string) {
 	} else {
 		cmd = fmt.Sprintf("docker exec -it %s sh", name)
 	}
-	openTerminal(cmd)
+	err := openTerminal(cmd)
+	if err != nil {
+		return
+	}
 }
 
-func getContainersByProject() (map[string][]Container, error) {
-	out, err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}|{{.Label \"com.docker.compose.project\"}}|{{.Status}}").CombinedOutput()
-	if err != nil {
-		return nil, err
-	}
+func parseDockerPSOutput(out string) map[string][]Container {
 	projects := make(map[string][]Container)
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
 	for _, line := range lines {
 		if line == "" {
 			continue
@@ -229,7 +231,15 @@ func getContainersByProject() (map[string][]Container, error) {
 		projects[project] = append(projects[project], Container{Name: name, Project: project, Status: status})
 	}
 
-	return projects, nil
+	return projects
+}
+
+func getContainersByProject() (map[string][]Container, error) {
+	out, err := exec.Command("docker", "ps", "-a", "--format", "{{.Names}}|{{.Label \"com.docker.compose.project\"}}|{{.Status}}").CombinedOutput()
+	if err != nil {
+		return nil, err
+	}
+	return parseDockerPSOutput(string(out)), nil
 }
 
 func populateProjectsMenu(m *systray.MenuItem) {
@@ -306,7 +316,7 @@ func populateProjectsMenu(m *systray.MenuItem) {
 
 			updateItems(status)
 
-			go func(name string, cont *Container) {
+			go func(name string, container *Container) {
 				ticker := time.NewTicker(5 * time.Second)
 				defer ticker.Stop()
 
@@ -316,23 +326,23 @@ func populateProjectsMenu(m *systray.MenuItem) {
 						out, err := exec.Command("docker", "inspect", "--format", "{{.State.Status}}", name).CombinedOutput()
 						if err == nil {
 							st := parseContainerStatus(string(out))
-							cont.Status = st
+							container.Status = st
 							updateItems(st)
 							updateProjectItems()
 						}
 					case <-startItem.ClickedCh:
 						exec.Command("docker", "start", name).Run()
-						cont.Status = "Running"
+						container.Status = "Running"
 						updateItems("Running")
 						updateProjectItems()
 					case <-stopItem.ClickedCh:
 						exec.Command("docker", "stop", name).Run()
-						cont.Status = "Stopped"
+						container.Status = "Stopped"
 						updateItems("Stopped")
 						updateProjectItems()
 					case <-restartItem.ClickedCh:
 						exec.Command("docker", "restart", name).Run()
-						cont.Status = "Running"
+						container.Status = "Running"
 						updateItems("Running")
 						updateProjectItems()
 					case <-logsItem.ClickedCh:
@@ -347,25 +357,25 @@ func populateProjectsMenu(m *systray.MenuItem) {
 			}(c.Name, c)
 		}
 
-		go func(conts []Container) {
+		go func(containers []Container) {
 			for {
 				select {
 				case <-startAll.ClickedCh:
-					for i := range conts {
-						exec.Command("docker", "start", conts[i].Name).Run()
-						conts[i].Status = "Running"
+					for i := range containers {
+						exec.Command("docker", "start", containers[i].Name).Run()
+						containers[i].Status = "Running"
 					}
 					updateProjectItems()
 				case <-stopAll.ClickedCh:
-					for i := range conts {
-						exec.Command("docker", "stop", conts[i].Name).Run()
-						conts[i].Status = "Stopped"
+					for i := range containers {
+						exec.Command("docker", "stop", containers[i].Name).Run()
+						containers[i].Status = "Stopped"
 					}
 					updateProjectItems()
 				case <-restartAll.ClickedCh:
-					for i := range conts {
-						exec.Command("docker", "restart", conts[i].Name).Run()
-						conts[i].Status = "Running"
+					for i := range containers {
+						exec.Command("docker", "restart", containers[i].Name).Run()
+						containers[i].Status = "Running"
 					}
 					updateProjectItems()
 				}

@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/client"
 	"github.com/getlantern/systray"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -21,6 +27,166 @@ type Container struct {
 	Project string
 	Status  string
 }
+
+func (c *containerMenu) setStatus(st string) {
+	c.status = st
+	c.item.SetTitle(fmt.Sprintf("%s (%s)", c.name, st))
+	switch st {
+	case "Running":
+		c.start.Hide()
+		c.stop.Show()
+	case "Stopped":
+		c.stop.Hide()
+		c.start.Show()
+	default:
+		c.start.Show()
+		c.stop.Show()
+	}
+	c.restart.Show()
+}
+
+func newProjectMenu(name string) *projectMenu {
+	pm := &projectMenu{
+		item:       projectsMenu.AddSubMenuItem(name, ""),
+		containers: make(map[string]*containerMenu),
+	}
+	pm.startAll = pm.item.AddSubMenuItem("Start All", "")
+	pm.stopAll = pm.item.AddSubMenuItem("Stop All", "")
+	pm.restartAll = pm.item.AddSubMenuItem("Restart All", "")
+	pm.item.AddSubMenuItem("", "").Disable()
+
+	pm.updateFunc = func() {
+		anyRunning := false
+		anyStopped := false
+		for _, c := range pm.containers {
+			if c.status == "Running" {
+				anyRunning = true
+			}
+			if c.status == "Stopped" {
+				anyStopped = true
+			}
+		}
+		if anyRunning {
+			pm.stopAll.Show()
+		} else {
+			pm.stopAll.Hide()
+		}
+		if anyStopped {
+			pm.startAll.Show()
+		} else {
+			pm.startAll.Hide()
+		}
+	}
+
+	go func(p *projectMenu) {
+		for {
+			select {
+			case <-p.startAll.ClickedCh:
+				mu.Lock()
+				for _, c := range p.containers {
+					exec.Command("docker", "start", c.name).Run()
+					c.setStatus("Running")
+				}
+				p.updateFunc()
+				mu.Unlock()
+			case <-p.stopAll.ClickedCh:
+				mu.Lock()
+				for _, c := range p.containers {
+					exec.Command("docker", "stop", c.name).Run()
+					c.setStatus("Stopped")
+				}
+				p.updateFunc()
+				mu.Unlock()
+			case <-p.restartAll.ClickedCh:
+				mu.Lock()
+				for _, c := range p.containers {
+					exec.Command("docker", "restart", c.name).Run()
+					c.setStatus("Running")
+				}
+				p.updateFunc()
+				mu.Unlock()
+			}
+		}
+	}(pm)
+
+	return pm
+}
+
+func getOrCreateProject(name string) *projectMenu {
+	if pm, ok := projects[name]; ok {
+		return pm
+	}
+	pm := newProjectMenu(name)
+	projects[name] = pm
+	return pm
+}
+
+func (p *projectMenu) getOrCreateContainer(name string) *containerMenu {
+	if c, ok := p.containers[name]; ok {
+		return c
+	}
+	c := &containerMenu{name: name}
+	c.item = p.item.AddSubMenuItem(name, "")
+	c.start = c.item.AddSubMenuItem("Start", "")
+	c.stop = c.item.AddSubMenuItem("Stop", "")
+	c.restart = c.item.AddSubMenuItem("Restart", "")
+	c.del = c.item.AddSubMenuItem("Delete", "")
+
+	go func(cm *containerMenu, pm *projectMenu) {
+		for {
+			select {
+			case <-cm.start.ClickedCh:
+				exec.Command("docker", "start", cm.name).Run()
+				mu.Lock()
+				cm.setStatus("Running")
+				pm.updateFunc()
+				mu.Unlock()
+			case <-cm.stop.ClickedCh:
+				exec.Command("docker", "stop", cm.name).Run()
+				mu.Lock()
+				cm.setStatus("Stopped")
+				pm.updateFunc()
+				mu.Unlock()
+			case <-cm.restart.ClickedCh:
+				exec.Command("docker", "restart", cm.name).Run()
+				mu.Lock()
+				cm.setStatus("Running")
+				pm.updateFunc()
+				mu.Unlock()
+			case <-cm.del.ClickedCh:
+				exec.Command("docker", "rm", cm.name).Run()
+			}
+		}
+	}(c, p)
+
+	p.containers[name] = c
+	return c
+}
+
+type containerMenu struct {
+	name    string
+	item    *systray.MenuItem
+	start   *systray.MenuItem
+	stop    *systray.MenuItem
+	restart *systray.MenuItem
+	del     *systray.MenuItem
+	status  string
+}
+
+type projectMenu struct {
+	item       *systray.MenuItem
+	startAll   *systray.MenuItem
+	stopAll    *systray.MenuItem
+	restartAll *systray.MenuItem
+	containers map[string]*containerMenu
+	updateFunc func()
+}
+
+var (
+	projectsMenu *systray.MenuItem
+	projects     = make(map[string]*projectMenu)
+	mu           sync.Mutex
+)
 
 func main() {
 	var err error
@@ -67,6 +233,7 @@ func onReady() {
 	}()
 
 	go updateStatus(mStatus, mStart, mStop)
+	go watchDockerEvents()
 }
 
 func onExit() {
@@ -184,127 +351,74 @@ func getContainersByProject() (map[string][]Container, error) {
 }
 
 func populateProjectsMenu(m *systray.MenuItem) {
-	projects, err := getContainersByProject()
+	mu.Lock()
+	projectsMenu = m
+	mu.Unlock()
+
+	projectsData, err := getContainersByProject()
 	if err != nil {
 		return
 	}
 
-	projectNames := make([]string, 0, len(projects))
-	for name := range projects {
-		projectNames = append(projectNames, name)
-	}
-	sort.Strings(projectNames)
-
-	for _, proj := range projectNames {
-		containers := projects[proj]
-		projItem := m.AddSubMenuItem(proj, "")
-
-		startAll := projItem.AddSubMenuItem("Start All", "")
-		stopAll := projItem.AddSubMenuItem("Stop All", "")
-		restartAll := projItem.AddSubMenuItem("Restart All", "")
-		projItem.AddSubMenuItem("", "").Disable()
-
-		updateProjectItems := func() {
-			anyRunning := false
-			anyStopped := false
-			for _, c := range containers {
-				status := parseContainerStatus(c.Status)
-				if status == "Running" {
-					anyRunning = true
-				}
-				if status == "Stopped" {
-					anyStopped = true
-				}
-			}
-			if anyRunning {
-				stopAll.Show()
-			} else {
-				stopAll.Hide()
-			}
-			if anyStopped {
-				startAll.Show()
-			} else {
-				startAll.Hide()
-			}
+	mu.Lock()
+	defer mu.Unlock()
+	for proj, conts := range projectsData {
+		pm := getOrCreateProject(proj)
+		for i := range conts {
+			c := conts[i]
+			cm := pm.getOrCreateContainer(c.Name)
+			cm.setStatus(parseContainerStatus(c.Status))
 		}
-
-		for i := range containers {
-			c := &containers[i]
-			status := parseContainerStatus(c.Status)
-			containerItem := projItem.AddSubMenuItem(c.Name, status)
-			startItem := containerItem.AddSubMenuItem("Start", "")
-			stopItem := containerItem.AddSubMenuItem("Stop", "")
-			restartItem := containerItem.AddSubMenuItem("Restart", "")
-			delItem := containerItem.AddSubMenuItem("Delete", "")
-
-			updateItems := func(st string) {
-				containerItem.SetTitle(fmt.Sprintf("%s (%s)", c.Name, st))
-				switch st {
-				case "Running":
-					startItem.Hide()
-					stopItem.Show()
-				case "Stopped":
-					stopItem.Hide()
-					startItem.Show()
-				default:
-					startItem.Show()
-					stopItem.Show()
-				}
-				restartItem.Show()
-			}
-
-			updateItems(status)
-
-			go func(name string, cont *Container) {
-				for {
-					select {
-					case <-startItem.ClickedCh:
-						exec.Command("docker", "start", name).Run()
-						cont.Status = "Running"
-						updateItems("Running")
-						updateProjectItems()
-					case <-stopItem.ClickedCh:
-						exec.Command("docker", "stop", name).Run()
-						cont.Status = "Stopped"
-						updateItems("Stopped")
-						updateProjectItems()
-					case <-restartItem.ClickedCh:
-						exec.Command("docker", "restart", name).Run()
-						cont.Status = "Running"
-						updateItems("Running")
-						updateProjectItems()
-					case <-delItem.ClickedCh:
-						exec.Command("docker", "rm", name).Run()
-					}
-				}
-			}(c.Name, c)
-		}
-
-		go func(conts []Container) {
-			for {
-				select {
-				case <-startAll.ClickedCh:
-					for i := range conts {
-						exec.Command("docker", "start", conts[i].Name).Run()
-						conts[i].Status = "Running"
-					}
-					updateProjectItems()
-				case <-stopAll.ClickedCh:
-					for i := range conts {
-						exec.Command("docker", "stop", conts[i].Name).Run()
-						conts[i].Status = "Stopped"
-					}
-					updateProjectItems()
-				case <-restartAll.ClickedCh:
-					for i := range conts {
-						exec.Command("docker", "restart", conts[i].Name).Run()
-						conts[i].Status = "Running"
-					}
-					updateProjectItems()
-				}
-			}
-		}(containers)
-
-		updateProjectItems()
+		pm.updateFunc()
 	}
+}
+
+func watchDockerEvents() {
+	cli, err := client.NewClientWithOpts(client.FromEnv)
+	if err != nil {
+		log.Printf("docker client error: %v", err)
+		return
+	}
+
+	f := filters.NewArgs()
+	f.Add("type", "container")
+	f.Add("event", "start")
+	f.Add("event", "die")
+
+	msgs, errs := cli.Events(context.Background(), types.EventsOptions{Filters: f})
+	for {
+		select {
+		case err := <-errs:
+			if err != nil {
+				log.Printf("docker event error: %v", err)
+				return
+			}
+		case msg := <-msgs:
+			handleDockerEvent(cli, msg)
+		}
+	}
+}
+
+func handleDockerEvent(cli *client.Client, msg events.Message) {
+	ctx := context.Background()
+	inspect, err := cli.ContainerInspect(ctx, msg.ID)
+	if err != nil {
+		return
+	}
+	name := strings.TrimPrefix(inspect.Name, "/")
+	project := inspect.Config.Labels["com.docker.compose.project"]
+	if project == "" {
+		project = "default"
+	}
+	status := "Stopped"
+	if inspect.State != nil && inspect.State.Running {
+		status = "Running"
+	}
+
+	mu.Lock()
+	pm := getOrCreateProject(project)
+	cm := pm.getOrCreateContainer(name)
+	cm.setStatus(status)
+	pm.updateFunc()
+	mu.Unlock()
 }
